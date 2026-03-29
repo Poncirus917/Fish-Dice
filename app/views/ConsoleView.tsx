@@ -1,4 +1,5 @@
 "use client";
+import Swal from 'sweetalert2';
 import { useState, useEffect } from 'react';
 import { CharacterState } from '../page';
 import { cocCheck } from '../utils/dice';
@@ -203,11 +204,11 @@ export default function ConsoleView({ characters, setCharacters }: ConsoleViewPr
       id: Math.random().toString(36).substring(2, 11),
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
       name: currentChar.name,
-      label: `燃烧幸运: ${originalResult.label}`,
+      label: `${originalResult.label} [燃烧幸运]`,
       roll: originalResult.target, 
       target: originalResult.target,
       level: '成功',
-      isLuckBurned: true, // 新增标记位：标记这是靠燃烧幸运成功的
+      isLuckBurned: true, 
       isPushed: originalResult.isPushed
     };
     
@@ -227,13 +228,11 @@ export default function ConsoleView({ characters, setCharacters }: ConsoleViewPr
   };
 
   //--- 技能成长 ---
-  // 1. 定义不需要成长的非技能项（属性、状态、特殊项）
   const NON_SKILL_LABELS = [
     '力量', '敏捷', '意志', '体质', '外貌', '教育', '体型', '智力', 
     '理智', '幸运', '灵感'
   ];
 
-  // 3. 扫描函数：进入幕间成长页时触发
   const prepareGrowth = () => {
     if (!currentChar || !currentChar.skills) return;
 
@@ -244,7 +243,7 @@ export default function ConsoleView({ characters, setCharacters }: ConsoleViewPr
         log.name === currentChar.name && 
         log.level.includes('成功') && 
         !NON_SKILL_LABELS.includes(log.label) &&
-        !log.isPushed &&       // 修正：孤注一掷成功的技能不能成长
+        !log.isPushed &&       
         !log.isLuckBurned
       )
       .reduce<GrowthItem[]>((acc, log) => {
@@ -270,27 +269,22 @@ export default function ConsoleView({ characters, setCharacters }: ConsoleViewPr
   };
 
   const handleSaveGrowth = () => {
-    // 1. 安全检查：确保当前有选中的角色
     if (!currentChar) return;
 
-    // 2. 准备更新后的技能对象
     const updatedSkills = { ...currentChar.skills } as Record<string, number>;
     let hasChanges = false;
 
     growthList.forEach(item => {
-      // 只有判定成功且 roll10 有值的才增加
       if (item.isSuccess && item.roll10 !== null) {
         const oldValue = updatedSkills[item.label] ?? item.current;
         const newValue = oldValue + item.roll10;
         
-        // COC 规则通常技能上限是 99
         updatedSkills[item.label] = Math.min(newValue, 99);
         hasChanges = true;
       }
     });
 
     if (hasChanges) {
-      // 3. 同步到全局 characters 状态
       setCharacters((prev: CharacterState[]) => 
         prev.map(char => 
           char.id === currentChar.id 
@@ -323,7 +317,7 @@ export default function ConsoleView({ characters, setCharacters }: ConsoleViewPr
     const newLog: LogEntry = {
       id: Math.random().toString(36).substring(2, 11),
       time: new Date().toLocaleTimeString(),
-      name: rollerName, // 使用推导出的名称
+      name: rollerName, 
       label: customLabel || "自由掷骰",
       roll: finalResult,
       target: 0,
@@ -394,11 +388,9 @@ export default function ConsoleView({ characters, setCharacters }: ConsoleViewPr
     }
     
     if (selectedStat === 'san' && isDamage && (currentChar.type === 'pc' || currentChar.type === 'npc')) {
-      // 判定 1: SAN 归 0 判定为永久疯狂
       if (newVal === 0 && !statusUpdate.includes('永久疯狂')) {
         statusUpdate.push('永久疯狂');
       }
-      // 判定 2: 单次损失超过 5 点触发临时疯狂判定 (现有逻辑)
       if (changeAmount >= 5) {
         nextCheck = { label: "智力 (临时疯狂判定)", target: currentChar.attributes["智力"] || 50, type: 'temp_insane' };
       }
@@ -432,31 +424,36 @@ export default function ConsoleView({ characters, setCharacters }: ConsoleViewPr
   // 导出为 TXT
   const exportLogs = () => {
     if (logs.length === 0) return;
-    
-    const content = logs.map(log => {
-      const isCheck = log.level.includes('成功') || log.level.includes('失败');
-      // 逻辑判定：如果是技能检定
-      if (isCheck) {
-        return `【${log.name}】 ${log.label}：${log.roll}/${log.target} ${log.level}${log.isPushed ? '（孤注一掷）' : ''}`;
-      }
-      // 逻辑判定：如果是伤害/数值增减或自由掷骰 (目前你的 level 存的是结果描述)
-      return `【${log.name}】 ${log.label}：${log.level}`;
-    }).reverse().join('\n'); // reverse 是为了让时间线从旧到新
 
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const now = new Date();
+    const dateStr = now.toISOString().split('T')[0]; 
+
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const fileName = `log_${dateStr}_${hours}${minutes}.txt`;
+
+    const header = `--- COC Dice Log Export (${now.toLocaleString()}) ---\n\n`;
+
+    const content = [...logs].reverse().map(log => {
+      let statusTag = "";
+      if (log.isPushed) statusTag = " [孤注一掷]";
+
+      const rollDetail = (log.level.includes('成功') || log.level.includes('失败')) 
+        ? `(Roll:${log.roll}/${log.target})` 
+        : "";
+
+      return `[${log.time}] ${log.name} - ${log.label}${statusTag}: ${log.level} ${rollDetail}`;
+    }).join('\n');
+
+    const blob = new Blob([header + content], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `Log_${new Date().toLocaleDateString()}.txt`;
-    link.click();
-  };
-
-  // 清空日志 (带确认)
-  const clearAllLogs = () => {
-    if (window.confirm("确定要清空所有日志记录吗？此操作不可撤销。")) {
-      setLogs([]);
-      setLastResult(null);
-    }
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   // --- 渲染部分 ---
@@ -506,6 +503,50 @@ export default function ConsoleView({ characters, setCharacters }: ConsoleViewPr
   const blacklist = ['体力（hp）', '魔法（mp）', '理智（san）', '幸运（luck）', 'hp', 'mp', 'san', 'luck'];
   const filteredItems = Object.entries(allSelectable)
     .filter(([name]) => !blacklist.includes(name.toLowerCase()) && name.toLowerCase().includes(searchTerm.toLowerCase()));
+
+  const handleDeleteLog = (log: any) => {
+    Swal.fire({
+      title: '确定删除此记录?',
+      text: `${log.time} - ${log.label}`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#ef4444',
+      cancelButtonColor: '#64748b',
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+      reverseButtons: true
+    }).then((result) => {
+      if (result.isConfirmed) {
+        setLogs(prev => {
+          const newLogs = prev.filter(l => l.id !== log.id);
+          // 如果删除的是当前显示的最后结果，同步更新
+          if (lastResult?.id === log.id) {
+            setLastResult(newLogs.length > 0 ? newLogs[0] : null);
+          }
+          return newLogs;
+        });
+      }
+    });
+  };
+
+  const handleClearAllLogs = () => {
+    Swal.fire({
+      title: '确定清空所有日志?',
+      text: "此操作不可撤销！",
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: '全部清空',
+      cancelButtonText: '点错了',
+      confirmButtonColor: '#b91c1c',
+      reverseButtons: true
+    }).then((result) => {
+      if (result.isConfirmed) {
+        setLogs([]);
+        setLastResult(null);
+        Swal.fire({ title: '已清空', icon: 'success', timer: 1000, showConfirmButton: false });
+      }
+    });
+  };
 
   return (
     <div className="relative flex h-[calc(100vh-120px)] gap-6 overflow-hidden p-2">
@@ -1351,7 +1392,7 @@ export default function ConsoleView({ characters, setCharacters }: ConsoleViewPr
               Export TXT
             </button>
             <button 
-              onClick={clearAllLogs}
+              onClick={handleClearAllLogs} 
               className="flex-1 py-2 bg-red-50 text-red-600 text-[10px] font-black uppercase rounded-lg hover:bg-red-600 hover:text-white transition-all border border-red-100"
             >
               Clear All
@@ -1373,23 +1414,17 @@ export default function ConsoleView({ characters, setCharacters }: ConsoleViewPr
                       </div>
                     )}
 
+                    {/* 燃烧幸运标签 */}
+                    {log.isLuckBurned && (
+                      <div className="absolute -right-1 top-7 bg-blue-600 text-white text-[8px] font-black px-1.5 py-0.5 rounded-sm shadow-sm z-10">
+                        燃烧幸运
+                      </div>
+                    )}
+
                     {/* 修改后的单条删除按钮：增加 confirm */}
                     <button 
-                      onClick={() => {
-                        if (window.confirm("删除这条记录？")) {
-                          setLogs(prev => {
-                            const newLogs = prev.filter(l => l.id !== log.id);
-                            if (lastResult?.id === log.id) {
-                              setLastResult(newLogs.length > 0 ? newLogs[0] : null);
-                            }
-                            return newLogs;
-                          });
-                        }
-                      }}
-                      className="absolute -top-2 -right-2 w-6 h-6 flex items-center justify-center 
-                                bg-white text-slate-400 shadow-md border border-slate-100 rounded-full 
-                                opacity-0 group-hover:opacity-100 hover:bg-red-50 hover:text-red-500 
-                                hover:scale-110 active:scale-95 transition-all duration-200 z-20"
+                      onClick={() => handleDeleteLog(log)} // 使用新定义的 Swal 函数
+                      className="absolute -top-2 -right-2 ..."
                     >
                       <span className="text-[10px] font-bold">✕</span>
                     </button>
@@ -1399,7 +1434,7 @@ export default function ConsoleView({ characters, setCharacters }: ConsoleViewPr
                       <div className="text-[13px] font-black px-1.5 py-0.5 bg-slate-200 text-slate-500 rounded uppercase tracking-tighter">{log.name}</div>
                     </div>
 
-                    <div className={`font-bold text-[15px] mb-1 ${log.isPushed ? 'text-orange-900' : 'text-slate-800'}`}>
+                    <div className={`font-bold text-[15px] mb-1 ${log.isPushed ? 'text-orange-900' : (log.isLuckBurned ? 'text-blue-900' :'text-slate-800')}`}>
                       {log.label}
                     </div>
 

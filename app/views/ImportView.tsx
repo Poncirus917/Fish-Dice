@@ -1,4 +1,5 @@
 "use client";
+import Swal from 'sweetalert2';
 import { useState, useRef } from 'react';
 import { parseCharacterText } from '../utils/parser';
 import { CharacterState } from '../page';
@@ -10,7 +11,6 @@ interface ImportViewProps {
 }
 
 export default function ImportView({ onConfirm, characters, setCharacters }: ImportViewProps) {
-  // 新增：区分当前是在创建 PC 还是 NPC/怪物
   const [activeTab, setActiveTab] = useState<'pc' | 'npc' | 'mob'>('pc');
   const [step, setStep] = useState<1 | 2>(1); 
   const [name, setName] = useState("");
@@ -21,7 +21,8 @@ export default function ImportView({ onConfirm, characters, setCharacters }: Imp
   const [editingId, setEditingId] = useState<string | null>(null); 
   const [expandedId, setExpandedId] = useState<string | null>(null); 
   const fileInputRef = useRef<HTMLInputElement>(null);
-
+  const [newSkillName, setNewSkillName] = useState("");
+  const [newSkillValue, setNewSkillValue] = useState<number>(0);
   const clamp = (val: number, type?: string) => {
     const max = type === 'mob' ? 9999 : 99; 
     return Math.min(Math.max(val, 0), max);
@@ -80,10 +81,26 @@ export default function ImportView({ onConfirm, characters, setCharacters }: Imp
     if (editingId) {
       setCharacters(prev => prev.map(c => c.id === editingId ? newChar : c));
       setEditingId(null);
+      Swal.fire({
+        icon: 'success',
+        title: '修改已保存',
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 2000,
+      });
     } else {
       onConfirm(newChar);
+      Swal.fire({
+        icon: 'success',
+        title: '角色创建成功',
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 2000,
+      });
     }
-    
+
     setName("");
     setPlName("");
     setAvatar(null);
@@ -103,9 +120,51 @@ export default function ImportView({ onConfirm, characters, setCharacters }: Imp
   };
 
   const handleDelete = (id: string) => {
-    if (window.confirm("确定要删除吗？")) {
-      setCharacters(prev => prev.filter(char => char.id !== id));
+    Swal.fire({
+      title: "确定要删除吗？",
+      text: "删除后将无法恢复该角色数据！",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonColor: "#ef4444", // tailwind red-500
+      cancelButtonColor: "#64748b",  // tailwind slate-500
+      confirmButtonText: "确定删除",
+      cancelButtonText: "取消",
+      reverseButtons: true // 让确定按钮在右边，符合现代习惯
+    }).then((result) => {
+      if (result.isConfirmed) {
+        setCharacters(prev => prev.filter(char => char.id !== id));
+        Swal.fire({
+          icon: 'success',
+          title: '角色已删除',
+          toast: true,
+          position: 'top-end',
+          showConfirmButton: false,
+          timer: 2000,
+        });
+      }
+    });
+  };
+
+  const handleAddNewSkill = () => {
+    const trimmedName = newSkillName.trim();
+    if (!trimmedName) return;
+
+    if (tempSkills.hasOwnProperty(trimmedName)) {
+      Swal.fire({
+        title: "技能已存在",
+        text: `"${trimmedName}" 已在列表中，请直接修改数值。`,
+        icon: "info",
+        confirmButtonText: "知道了"
+      });
+      return;
     }
+
+    setTempSkills(prev => ({
+      ...prev,
+      [trimmedName]: clamp(newSkillValue)
+    }));
+    setNewSkillName("");
+    setNewSkillValue(0);
   };
 
   return (
@@ -159,7 +218,7 @@ export default function ImportView({ onConfirm, characters, setCharacters }: Imp
                 <div className="flex-1 space-y-4 w-full">
                   <input 
                     className="w-full bg-slate-50 border-none rounded-xl p-3 focus:ring-2 focus:ring-blue-500 outline-none"
-                    placeholder={activeTab === 'pc' ? "调查员姓名" : "NPC/怪物名称"} value={name} onChange={(e) => setName(e.target.value)}
+                    placeholder={activeTab === 'pc' ? "调查员姓名" : (activeTab === 'npc' ? 'NPC姓名' : '怪物名')} value={name} onChange={(e) => setName(e.target.value)}
                   />
                   {activeTab === 'pc' && (
                     <input 
@@ -172,7 +231,7 @@ export default function ImportView({ onConfirm, characters, setCharacters }: Imp
 
               <textarea 
                 className="w-full bg-slate-50 border-none rounded-xl p-4 min-h-[200px] focus:ring-2 focus:ring-blue-500 outline-none font-mono text-sm"
-                placeholder={activeTab === 'pc' ? "粘贴数值文本...例如：力量50 敏捷60..." : "在此输入属性或技能，格式：力量80 斗殴60 触手攻击50"}
+                placeholder={activeTab === 'pc'||'npc' ? "粘贴数值文本...例如：力量50 敏捷60..." : "在此输入属性或技能，格式：力量80 斗殴60 触手攻击50"}
                 value={rawText} onChange={(e) => setRawText(e.target.value)}
               />
 
@@ -180,7 +239,7 @@ export default function ImportView({ onConfirm, characters, setCharacters }: Imp
                 onClick={handleToStep2}
                 disabled={!name}
                 className={`w-full text-white py-4 rounded-xl font-bold transition-all shadow-lg ${
-                    activeTab === 'mob' ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'
+                    activeTab === 'mob' ? 'bg-red-600 hover:bg-red-700' : (activeTab === 'npc' ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700')
                 } disabled:bg-slate-200`}
               >
                 {editingId ? "确认并校对数值" : "解析并进入下一步"}
@@ -204,16 +263,14 @@ export default function ImportView({ onConfirm, characters, setCharacters }: Imp
                   <h4 className="text-sm font-bold text-slate-700 mb-4 uppercase">核心属性</h4>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                     {["力量", "敏捷", "意志", "体质", "外貌", "教育", "体型", "智力", "体力（HP）", "魔法（MP）", "理智", "幸运"].map(attr => {
-                      // 怪物往往不需要理智
                       if(attr === "理智" && (activeTab !== 'pc' && activeTab!='npc')) return null;
                       
                       const isDerived = activeTab === 'mob' 
-                        ? (attr === "理智") // 怪物只有理智是派生的（或不显示的）
+                        ? (attr === "理智") 
                         : ["体力（HP）", "魔法（MP）", "理智"].includes(attr);
 
                       let displayValue = tempSkills[attr] || 0;
-                      
-                      // 只有非怪物角色才强制使用公式显示
+
                       if (activeTab !== 'mob') {
                         if (attr === "体力（HP）") displayValue = derivedHP;
                         if (attr === "魔法（MP）") displayValue = derivedMP;
@@ -230,7 +287,6 @@ export default function ImportView({ onConfirm, characters, setCharacters }: Imp
                             readOnly={isDerived}
                             onChange={(e) => {
                               if(!isDerived) {
-                                // 传入 activeTab 以应用新的上限逻辑
                                 setTempSkills({...tempSkills, [attr]: clamp(parseInt(e.target.value) || 0, activeTab)});
                               }
                             }}
@@ -243,17 +299,49 @@ export default function ImportView({ onConfirm, characters, setCharacters }: Imp
 
                 <section>
                   <h4 className="text-sm font-bold text-slate-700 mb-4 uppercase">技能列表</h4>
+                  <div className="flex gap-2 mb-4 p-3 bg-blue-50/50 rounded-2xl border border-blue-100/50">
+                    <input 
+                      type="text" 
+                      placeholder="新技能名称..."
+                      className="flex-1 bg-white border-none rounded-xl px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-blue-400"
+                      value={newSkillName}
+                      onChange={(e) => setNewSkillName(e.target.value)}
+                    />
+                    <input 
+                      type="number" 
+                      className="w-16 bg-white border-none rounded-xl px-2 py-2 text-sm text-center outline-none focus:ring-1 focus:ring-blue-400"
+                      value={newSkillValue}
+                      onChange={(e) => setNewSkillValue(parseInt(e.target.value) || 0)}
+                    />
+                    <button 
+                      onClick={handleAddNewSkill}
+                      className="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-blue-700 transition-colors"
+                    >
+                      添加
+                    </button>
+                  </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[300px] overflow-y-auto pr-2">
                     {Object.entries(tempSkills).map(([key, value]) => {
                       if (["力量", "敏捷", "意志", "体质", "外貌", "教育", "体型", "智力", "体力（HP）", "魔法（MP）", "理智", "幸运"].includes(key)) return null;
                       return (
-                        <div key={key} className="flex items-center justify-between p-3 border rounded-xl bg-white border-slate-200">
+                        <div key={key} className="flex items-center justify-between p-3 border rounded-xl bg-white border-slate-200 group">
                           <span className="text-sm text-slate-600">{key}</span>
-                          <input 
-                            type="number" className="w-12 text-right font-semibold outline-none bg-transparent text-slate-900"
-                            value={value} 
-                            onChange={(e) => setTempSkills({...tempSkills, [key]: clamp(parseInt(e.target.value) || 0)})}
-                          />
+                          <div className="flex items-center gap-2">
+                            <input 
+                              type="number" className="w-12 text-right font-semibold outline-none bg-transparent text-slate-900"
+                              value={value} 
+                              onChange={(e) => setTempSkills({...tempSkills, [key]: clamp(parseInt(e.target.value) || 0)})}
+                            />
+                            <button 
+                              onClick={() => {
+                                const { [key]: _, ...rest } = tempSkills;
+                                setTempSkills(rest);
+                              }}
+                              className="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-400 text-xs transition-all"
+                            >
+                              ✕
+                            </button>
+                          </div>
                         </div>
                       );
                     })}
