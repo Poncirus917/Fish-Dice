@@ -535,15 +535,22 @@ export default function ConsoleView({ characters, setCharacters }: ConsoleViewPr
       text: "此操作不可撤销！",
       icon: 'warning',
       showCancelButton: true,
-      confirmButtonText: '全部清空',
-      cancelButtonText: '点错了',
+      confirmButtonText: '确认',
+      cancelButtonText: '取消',
       confirmButtonColor: '#b91c1c',
       reverseButtons: true
     }).then((result) => {
       if (result.isConfirmed) {
         setLogs([]);
         setLastResult(null);
-        Swal.fire({ title: '已清空', icon: 'success', timer: 1000, showConfirmButton: false });
+        Swal.fire({
+                icon: 'success',
+                title: '记录已清空',
+                toast: true,
+                position: 'top-end',
+                showConfirmButton: false,
+                timer: 2000,
+              });
       }
     });
   };
@@ -623,8 +630,9 @@ export default function ConsoleView({ characters, setCharacters }: ConsoleViewPr
         </div>
 
         {/* 动态工作面板 */}
-        <div className="flex-1 bg-white rounded-[3rem] border border-slate-200 shadow-inner flex flex-col items-center justify-center p-12 relative overflow-hidden">
-          
+        <div className="flex-1 bg-white rounded-[3rem] border border-slate-200 shadow-inner flex flex-col relative overflow-hidden">
+          <div className="absolute inset-0 overflow-y-auto scrollbar-hide">
+            <div className="min-h-full flex flex-col items-center justify-center px-12 py-12">
           {/* 规则触发弹窗：KP模式下不会触发此弹窗 */}
           {pendingCheck && !isKPMode && (
             <div className="absolute inset-0 z-20 bg-white/90 backdrop-blur-md flex flex-col items-center justify-center p-8 animate-in fade-in zoom-in duration-300">
@@ -802,8 +810,10 @@ export default function ConsoleView({ characters, setCharacters }: ConsoleViewPr
                 )}
 
                 {rollType === 'damage' && (
-                  <div className="w-full max-w-2xl mt-4 flex flex-col items-center gap-6 animate-in fade-in zoom-in duration-300">
-                    <div className="h-20 flex items-center justify-center w-full">
+                <div className="w-full max-w-2xl flex flex-col overflow-y-auto pr-2 custom-scrollbar animate-in fade-in zoom-in duration-300">
+                  <div className="flex flex-col items-center gap-6 py-4">
+                    
+                    <div className="h-20 flex items-center justify-center w-full flex-shrink-0">
                       {lastResult ? (
                         <div className="flex flex-col items-center animate-in slide-in-from-top-4 duration-300">
                           <div className="flex items-baseline gap-3">
@@ -821,14 +831,13 @@ export default function ConsoleView({ characters, setCharacters }: ConsoleViewPr
                     </div>
 
                     {isTotallyDead ? (
-                      <div className="p-12 bg-slate-100 rounded-[2rem] border-2 border-dashed border-slate-300 text-center">
+                      <div className="p-12 bg-slate-100 rounded-[2rem] border-2 border-dashed border-slate-300 text-center w-full">
                         <span className="text-4xl mb-4 block">💀</span>
                         <p className="text-slate-600 font-black uppercase tracking-widest text-sm">该角色已死亡</p>
                       </div>
                     ) : (
-      
                       <>
-                        <div className="flex gap-2 p-1 bg-slate-100 rounded-2xl">
+                        <div className="flex gap-2 p-1 bg-slate-100 rounded-2xl flex-wrap justify-center flex-shrink-0">
                           {['hp', 'mp', 'san', 'luck'].filter(k => {
                             if (currentChar?.type === 'mob') return k === 'hp' || k === 'mp';
                             return true;
@@ -842,32 +851,71 @@ export default function ConsoleView({ characters, setCharacters }: ConsoleViewPr
                             </button>
                           ))}
                         </div>
-
-                        <div className="flex flex-col items-center gap-4 w-full">
-                          <div className="flex items-center gap-3">
-                            <input type="number" className="w-16 h-16 text-center text-2xl font-black bg-slate-50 border-2 border-slate-200 rounded-2xl" value={dmgDiceCount} onChange={e => { setDmgDiceCount(Number(e.target.value)); setIsFixed(false); }} />
-                            <span className="font-serif italic text-2xl text-slate-400">D</span>
-                            <input type="number" className="w-16 h-16 text-center text-2xl font-black bg-slate-50 border-2 border-slate-200 rounded-2xl" value={dmgDiceSides} onChange={e => { setDmgDiceSides(Number(e.target.value)); setIsFixed(false); }} />
-                            <span className="font-serif italic text-2xl text-slate-400">+</span>
-                            <input type="number" className="w-16 h-16 text-center text-2xl font-black bg-slate-50 border-2 border-slate-200 rounded-2xl" value={dmgBonus} onChange={e => { setDmgBonus(Number(e.target.value)); setIsFixed(false); }} />
-                            <span className="mx-4 text-slate-200">|</span>
-                            <input type="number" placeholder="固定值" className="w-24 h-16 text-center text-xl font-black bg-blue-50/50 border-2 border-blue-100 rounded-2xl placeholder:text-blue-200" value={fixedValue} onChange={e => { setFixedValue(e.target.value === "" ? "" : Number(e.target.value)); setIsFixed(true); }} />
-                          </div>
+                            
+                        <div className="flex flex-col items-center gap-4 w-full flex-shrink-0">
+                          <div className="flex items-center gap-3 flex-wrap justify-center">
+                          {/* 骰子数量：最小为 1 */}
+                          <input 
+                            type="number" 
+                            min="1"
+                            className="w-16 h-16 text-center text-2xl font-black bg-slate-50 border-2 border-slate-200 rounded-2xl" 
+                            value={dmgDiceCount} 
+                            onChange={e => { setDmgDiceCount(Math.max(1, Number(e.target.value))); setIsFixed(false); }} 
+                          />
+                          <span className="font-serif italic text-2xl text-slate-400">D</span>
+                          
+                          {/* 骰子面数：最小为 1 */}
+                          <input 
+                            type="number" 
+                            min="1"
+                            className="w-16 h-16 text-center text-2xl font-black bg-slate-50 border-2 border-slate-200 rounded-2xl" 
+                            value={dmgDiceSides} 
+                            onChange={e => { setDmgDiceSides(Math.max(1, Number(e.target.value))); setIsFixed(false); }} 
+                          />
+                          <span className="font-serif italic text-2xl text-slate-400">+</span>
+                          
+                          {/* 加值：最小为 0 */}
+                          <input 
+                            type="number" 
+                            min="0"
+                            className="w-16 h-16 text-center text-2xl font-black bg-slate-50 border-2 border-slate-200 rounded-2xl" 
+                            value={dmgBonus} 
+                            onChange={e => { setDmgBonus(Math.max(0, Number(e.target.value))); setIsFixed(false); }} 
+                          />
+                          
+                          <span className="mx-4 text-slate-200">|</span>
+                          
+                          {/* 固定值：最小为 0 */}
+                          <input 
+                            type="number" 
+                            min="0"
+                            placeholder="固定值" 
+                            className="w-24 h-16 text-center text-xl font-black bg-blue-50/50 border-2 border-blue-100 rounded-2xl placeholder:text-blue-200" 
+                            value={fixedValue} 
+                            onChange={e => { 
+                              const val = e.target.value === "" ? "" : Math.max(0, Number(e.target.value));
+                              setFixedValue(val); 
+                              setIsFixed(true); 
+                            }} 
+                          />
+                        </div>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-4 w-full h-24">
-                          <button onClick={() => applyValueChange(true)} className="bg-red-600 text-white rounded-[2rem] font-black text-lg hover:bg-red-700 transition-all active:scale-95 shadow-lg shadow-red-200">损失 (DAMAGE)</button>
-                          <button onClick={() => applyValueChange(false)} className="bg-green-600 text-white rounded-[2rem] font-black text-lg hover:bg-green-700 transition-all active:scale-95 shadow-lg shadow-green-200">恢复 (HEAL)</button>
+                        <div className="grid grid-cols-2 gap-4 w-full h-24 flex-shrink-0 mb-4">
+                          <button onClick={() => applyValueChange(true)} className="bg-red-600 text-white rounded-[2rem] font-black text-lg hover:bg-red-700 transition-all active:scale-95 shadow-lg shadow-red-200">损失</button>
+                          <button onClick={() => applyValueChange(false)} className="bg-green-600 text-white rounded-[2rem] font-black text-lg hover:bg-green-700 transition-all active:scale-95 shadow-lg shadow-green-200">恢复 </button>
                         </div>
                       </>
                     )}
                   </div>
-                )}
-                 
+                </div>
+              )}
+
                 {rollType === 'custom' && (
-                  <div className="w-full max-w-2xl mt-4 flex flex-col items-center gap-8 animate-in fade-in zoom-in duration-300">
+                <div className="w-full max-w-2xl flex flex-col overflow-y-auto pr-2 custom-scrollbar animate-in fade-in zoom-in duration-300">
+                  <div className="flex flex-col items-center gap-8 py-4">
                     {/* 结果显示区 */}
-                    <div className="h-20 flex items-center justify-center w-full">
+                    <div className="h-20 flex items-center justify-center w-full flex-shrink-0">
                       {lastResult ? (
                         <div className="flex flex-col items-center animate-bounce-short">
                           <div className="flex items-baseline gap-3">
@@ -879,8 +927,7 @@ export default function ConsoleView({ characters, setCharacters }: ConsoleViewPr
                     </div>
 
                     {/* 输入区容器 */}
-                    <div className="w-full space-y-6 bg-slate-50/50 p-8 rounded-[2.5rem] border border-slate-100">
-                      {/* 第一行：掷骰目的 */}
+                    <div className="w-full space-y-6 bg-slate-50/50 p-8 rounded-[2.5rem] border border-slate-100 mb-6 flex-shrink-0">
                       <div className="flex flex-col gap-2">
                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">掷骰目的</label>
                         <input 
@@ -892,28 +939,50 @@ export default function ConsoleView({ characters, setCharacters }: ConsoleViewPr
                         />
                       </div>
 
-                      {/* 第二行：公式输入 */}
                       <div className="flex flex-col gap-2">
                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">掷骰（XDX+X）</label>
                         <div className="flex items-center gap-3">
-                          <input type="number" className="w-full h-14 text-center text-xl font-black bg-white border-2 border-slate-100 rounded-2xl focus:border-blue-400 outline-none" value={customDiceCount} onChange={e => setCustomDiceCount(Number(e.target.value))} />
-                          <span className="font-serif italic text-xl text-slate-300">D</span>
-                          <input type="number" className="w-full h-14 text-center text-xl font-black bg-white border-2 border-slate-100 rounded-2xl focus:border-blue-400 outline-none" value={customDiceSides} onChange={e => setCustomDiceSides(Number(e.target.value))} />
-                          <span className="font-serif italic text-xl text-slate-300">+</span>
-                          <input type="number" className="w-full h-14 text-center text-xl font-black bg-white border-2 border-slate-100 rounded-2xl focus:border-blue-400 outline-none" value={customBonus} onChange={e => setCustomBonus(Number(e.target.value))} />
-                        </div>
+                        {/* 骰子数量：最小 1 */}
+                        <input 
+                          type="number" 
+                          min="1"
+                          className="w-full h-14 text-center text-xl font-black bg-white border-2 border-slate-100 rounded-2xl focus:border-blue-400 outline-none" 
+                          value={customDiceCount} 
+                          onChange={e => setCustomDiceCount(Math.max(1, Number(e.target.value)))} 
+                        />
+                        <span className="font-serif italic text-xl text-slate-300">D</span>
+                        
+                        {/* 骰子面数：最小 1 */}
+                        <input 
+                          type="number" 
+                          min="1"
+                          className="w-full h-14 text-center text-xl font-black bg-white border-2 border-slate-100 rounded-2xl focus:border-blue-400 outline-none" 
+                          value={customDiceSides} 
+                          onChange={e => setCustomDiceSides(Math.max(1, Number(e.target.value)))} 
+                        />
+                        <span className="font-serif italic text-xl text-slate-300">+</span>
+                        
+                        {/* 额外加值：最小 0 */}
+                        <input 
+                          type="number" 
+                          min="0"
+                          className="w-full h-14 text-center text-xl font-black bg-white border-2 border-slate-100 rounded-2xl focus:border-blue-400 outline-none" 
+                          value={customBonus} 
+                          onChange={e => setCustomBonus(Math.max(0, Number(e.target.value)))} 
+                        />
+                      </div>
                       </div>
 
-                      {/* 投掷按钮 */}
                       <button 
                         onClick={executeCustomRoll}
                         className="w-full h-16 bg-slate-900 text-white rounded-2xl font-black text-lg hover:bg-blue-600 transition-all active:scale-95 shadow-xl shadow-slate-200 mt-2"
                       >
-                        掷骰 (ROLL)
+                        掷骰
                       </button>
                     </div>
                   </div>
-                )}
+                </div>
+              )}
                 
                 {rollType === 'special' && currentChar?.type === 'mob' && (
                   <div className="text-center p-10 text-slate-400 italic">
@@ -1359,9 +1428,11 @@ export default function ConsoleView({ characters, setCharacters }: ConsoleViewPr
                   </div>
                 )}
                 
-              </div>
+                  </div>
+                </div>
+              )}
             </div>
-          )}
+          </div>
         </div>
       </div>
 
