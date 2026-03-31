@@ -30,9 +30,14 @@ interface GrowthItem {
   isSuccess: boolean;
 }
 
+interface DiceGroup {
+  count: number;
+  sides: number;
+}
+
+
 export default function ConsoleView({ characters, setCharacters }: ConsoleViewProps) {
   const [selectedId, setSelectedId] = useState<string | 'KP'>(characters[0]?.id || 'KP');
-  const [showLog, setShowLog] = useState(false);
   const [rollType, setRollType] = useState<'check' | 'damage' | 'custom' | 'special' | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [lastResult, setLastResult] = useState<LogEntry | null>(() => {
@@ -52,9 +57,6 @@ export default function ConsoleView({ characters, setCharacters }: ConsoleViewPr
   }, [lastResult]);
 
   const [selectedStat, setSelectedStat] = useState<'hp' | 'mp' | 'san' | 'luck'>('hp');
-  const [dmgDiceCount, setDmgDiceCount] = useState(1);
-  const [dmgDiceSides, setDmgDiceSides] = useState(6);
-  const [dmgBonus, setDmgBonus] = useState(0);
   const [fixedValue, setFixedValue] = useState<number | "">("");
   const [isFixed, setIsFixed] = useState(false);
 
@@ -68,9 +70,7 @@ export default function ConsoleView({ characters, setCharacters }: ConsoleViewPr
 
   // --- 具体判定 (Custom) 相关状态 ---
   const [customLabel, setCustomLabel] = useState(""); // 掷骰目的，如“敌人数目”
-  const [customDiceCount, setCustomDiceCount] = useState(1);
-  const [customDiceSides, setCustomDiceSides] = useState(6);
-  const [customBonus, setCustomBonus] = useState(0);
+
 
   const [specialSubPage, setSpecialSubPage] = useState('list'); 
   const [pushResultOverlay, setPushResultOverlay] = useState<{
@@ -80,17 +80,63 @@ export default function ConsoleView({ characters, setCharacters }: ConsoleViewPr
   } | null>(null);
   const [growthList, setGrowthList] = useState<GrowthItem[]>([]);
   const [growthPhase, setGrowthPhase] = useState<'ready' | 'check' | 'result'>('ready');
+  // --- 骰子组合 ---
+  const [diceGroups, setDiceGroups] = useState<DiceGroup[]>([{ count: 1, sides: 6 }]);
+  const [bonusValue, setBonusValue] = useState<number>(0); // 统一的额外加值
+
+  // 添加骰子的函数
+  const addDiceGroup = () => {
+    if (diceGroups.length < 3) {
+      setDiceGroups([...diceGroups, { count: 1, sides: 6 }]);
+    }
+  };
+
+  // 移除骰子的函数
+  const removeDiceGroup = (index: number) => {
+    setDiceGroups(diceGroups.filter((_, i) => i !== index));
+  };
+
+  // 更新单个骰子组的函数
+  const updateDiceGroup = (index: number, field: keyof DiceGroup, value: number) => {
+    const newGroups = [...diceGroups];
+    newGroups[index][field] = Math.max(1, value);
+    setDiceGroups(newGroups);
+  };
+
   // --- 逻辑处理部分 ---
 
   const toggleStatus = (charId: string, statusName: string) => {
+    const targetChar = characters.find(c => c.id === charId);
+    if (!targetChar) return;
+
+    const isEntering = !targetChar.status?.includes(statusName);
+    const actionLabel = isEntering ? "进入状态" : "解除状态";
+
+    // 1. 更新角色状态
     setCharacters(prev => prev.map(c => {
       if (c.id !== charId) return c;
       const currentStatus = c.status || [];
-      const nextStatus = currentStatus.includes(statusName) 
-        ? currentStatus.filter(s => s !== statusName)
-        : [...currentStatus, statusName];
+      const nextStatus = isEntering 
+        ? [...currentStatus, statusName]
+        : currentStatus.filter(s => s !== statusName);
       return { ...c, status: nextStatus };
     }));
+
+    // 2. 产生一条状态变更日志
+    const statusLog: LogEntry = {
+      id: Math.random().toString(36).substring(2, 11),
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      name: targetChar.name,
+      label: `${actionLabel}：${statusName}`, // 记录 label 方便导出识别
+      roll: 0,
+      target: 0,
+      level: isEntering ? "ADDED" : "REMOVED", // 内部标识
+    };
+
+    setLogs(prev => [statusLog, ...prev]);
+    
+    // 可选：同步更新到“最后结果”显示区
+    setLastResult(statusLog);
   };
 
   const executeCheck = (label: string, 
@@ -134,7 +180,7 @@ export default function ConsoleView({ characters, setCharacters }: ConsoleViewPr
 
       if (isAutoTrigger && pendingCheck) {
         if (pendingCheck.type === 'temp_insane') {
-          if (!isSuccess && !currentChar.status?.includes('临时疯狂')) toggleStatus(currentChar.id, '临时疯狂');
+          if (isSuccess && !currentChar.status?.includes('临时疯狂')) toggleStatus(currentChar.id, '临时疯狂');
         } else {
           // 如果检定失败，根据类型切换到 昏迷 或 死亡
           if (!isSuccess) {
@@ -301,18 +347,28 @@ export default function ConsoleView({ characters, setCharacters }: ConsoleViewPr
   };
 
   const executeCustomRoll = () => {
-    // 如果是 KP 模式，名称显示为 "KP"，否则显示角色名
     const rollerName = isKPMode ? "守秘人(KP)" : (currentChar?.name || "未知");
 
-    let total = 0;
-    let rolls: number[] = [];
-    for (let i = 0; i < customDiceCount; i++) {
-      const r = Math.floor(Math.random() * customDiceSides) + 1;
-      rolls.push(r);
-      total += r;
-    }
-    const finalResult = total + customBonus;
-    const detailLabel = `${customDiceCount}D${customDiceSides}${customBonus >= 0 ? '+' : ''}${customBonus}`;
+    let totalRoll = 0;
+    let formulaParts: string[] = [];
+    let allDieResults: number[] = []; // 新增
+
+    diceGroups.forEach((group) => {
+      formulaParts.push(`${group.count}D${group.sides}`);
+      for (let i = 0; i < group.count; i++) {
+        const r = Math.floor(Math.random() * group.sides) + 1;
+        allDieResults.push(r);
+        totalRoll += r;
+      }
+    });
+
+    const finalResult = totalRoll + bonusValue;
+    const formula = formulaParts.join('+');
+    const process = allDieResults.join('+');
+    const bonusStr = bonusValue !== 0 ? `${bonusValue > 0 ? '+' : ''}${bonusValue}` : '';
+    
+    // 详情显示为：1D6+1D6 = 3+4 = 7
+    const detailLabel = `${formula}${bonusStr} = ${process}${bonusStr} = ${finalResult}`;
 
     const newLog: LogEntry = {
       id: Math.random().toString(36).substring(2, 11),
@@ -321,28 +377,53 @@ export default function ConsoleView({ characters, setCharacters }: ConsoleViewPr
       label: customLabel || "自由掷骰",
       roll: finalResult,
       target: 0,
-      level: `${detailLabel} (结果: ${finalResult})`
+      level: detailLabel // 这里会显示完整的过程
     };
 
     setLogs(prev => [newLog, ...prev]);
-    setLastResult({id: newLog.id,name:newLog.name,time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }), label: newLog.label, roll: finalResult, target: 0, level: detailLabel });
+    setLastResult({
+      id: newLog.id,
+      name: newLog.name,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }), 
+      label: newLog.label, 
+      roll: finalResult, 
+      target: 0, 
+      level: detailLabel 
+    });
   };
 
   const applyValueChange = (isDamage: boolean) => {
     if (!currentChar) return;
+    
     let changeAmount = 0;
     let detailLabel = "";
 
     if (isFixed && fixedValue !== "") {
+      // 1. 固定值逻辑 (保持不变)
       changeAmount = Number(fixedValue);
       detailLabel = `${changeAmount}`;
     } else {
-      let total = 0;
-      for (let i = 0; i < dmgDiceCount; i++) {
-        total += Math.floor(Math.random() * dmgDiceSides) + 1;
-      }
-      changeAmount = total + dmgBonus;
-      detailLabel = `${dmgDiceCount}D${dmgDiceSides}${dmgBonus >= 0 ? '+' : ''}${dmgBonus}=${changeAmount}`;
+      // 2. 多骰子组逻辑
+      let totalRoll = 0;
+      let formulaParts: string[] = [];
+      let allDieResults: number[] = [];
+
+      diceGroups.forEach((group) => {
+        formulaParts.push(`${group.count}D${group.sides}`);
+        for (let i = 0; i < group.count; i++) {
+          const r = Math.floor(Math.random() * group.sides) + 1;
+          allDieResults.push(r); 
+          totalRoll += r;
+        }
+      });
+
+      changeAmount = totalRoll + bonusValue;
+
+      const formula = formulaParts.join('+');
+      const process = allDieResults.join('+');
+      const bonusStr = bonusValue !== 0 ? `${bonusValue > 0 ? '+' : ''}${bonusValue}` : '';
+      
+      detailLabel = `${formula}${bonusStr} = ${process}${bonusStr} = ${changeAmount}`;
     }
     
     const sign = isDamage ? -1 : 1;
@@ -368,7 +449,7 @@ export default function ConsoleView({ characters, setCharacters }: ConsoleViewPr
           // 2. 重伤判定
           if (changeAmount >= maxVal / 2) {
             if (!statusUpdate.includes('重伤')) statusUpdate.push('重伤');
-            if (currentChar.type === 'pc') {
+            if (currentChar.type === 'pc' || currentChar.type === 'npc') {
               nextCheck = { label: "体质 (昏迷判定)", target: currentChar.attributes["体质"] || 50, type: 'major_injury' };
             }
           }
@@ -376,7 +457,7 @@ export default function ConsoleView({ characters, setCharacters }: ConsoleViewPr
           if (newVal === 0) {
             if (statusUpdate.includes('重伤')) {
               if (!statusUpdate.includes('濒死')) statusUpdate.push('濒死');
-              if (currentChar.type === 'pc') {
+              if (currentChar.type === 'pc' || 'npc') {
                 nextCheck = { label: "体质 (濒死维持)", target: currentChar.attributes["体质"] || 50, type: 'dying' };
               }
             } else {
@@ -407,6 +488,31 @@ export default function ConsoleView({ characters, setCharacters }: ConsoleViewPr
         : c
     ));
 
+    const addedStatus = statusUpdate.filter(s => !currentChar.status?.includes(s));
+    const removedStatus = currentChar.status?.filter(s => !statusUpdate.includes(s)) || [];
+
+    addedStatus.forEach(s => {
+      const entry: LogEntry = {
+        id: Math.random().toString(36).substring(2, 11),
+        time: new Date().toLocaleTimeString(),
+        name: currentChar.name,
+        label: `进入状态：${s}`,
+        roll: 0, target: 0, level: "AUTO"
+      };
+      setLogs(prev => [entry, ...prev]);
+    });
+
+    removedStatus.forEach(s => {
+      const entry: LogEntry = {
+        id: Math.random().toString(36).substring(2, 11),
+        time: new Date().toLocaleTimeString(),
+        name: currentChar.name,
+        label: `解除状态：${s}`,
+        roll: 0, target: 0, level: "AUTO"
+      };
+      setLogs(prev => [entry, ...prev]);
+    });
+
     const newLog: LogEntry = {
         id: Math.random().toString(36).substring(2, 11),
         time: new Date().toLocaleTimeString(),
@@ -427,22 +533,26 @@ export default function ConsoleView({ characters, setCharacters }: ConsoleViewPr
 
     const now = new Date();
     const dateStr = now.toISOString().split('T')[0]; 
-
-    const hours = String(now.getHours()).padStart(2, '0');
-    const minutes = String(now.getMinutes()).padStart(2, '0');
-    const fileName = `log_${dateStr}_${hours}${minutes}.txt`;
+    const fileName = `log_${dateStr}_${now.getHours()}${now.getMinutes()}.txt`;
 
     const header = `--- COC Dice Log Export (${now.toLocaleString()}) ---\n\n`;
 
     const content = [...logs].reverse().map(log => {
-      let statusTag = "";
-      if (log.isPushed) statusTag = " [孤注一掷]";
+      // 判断是否为状态变更日志
+      const isStatusLog = log.label.includes('进入状态') || log.label.includes('解除状态');
+      
+      if (isStatusLog) {
+        // 导出格式：[时间]角色名 - 进入状态：重伤
+        return `[${log.time}] ${log.name} - ${log.label}`;
+      }
 
+      // 普通掷骰日志逻辑保持不变
+      let statusTag = log.isPushed ? " [孤注一掷]" : "";
       const rollDetail = (log.level.includes('成功') || log.level.includes('失败')) 
-        ? `(Roll:${log.roll}/${log.target})` 
+        ? ` (Roll:${log.roll}/${log.target})` 
         : "";
 
-      return `[${log.time}] ${log.name} - ${log.label}${statusTag}: ${log.level} ${rollDetail}`;
+      return `[${log.time}] ${log.name} - ${log.label}${statusTag}: ${log.level}${rollDetail}`;
     }).join('\n');
 
     const blob = new Blob([header + content], { type: 'text/plain' });
@@ -556,10 +666,10 @@ export default function ConsoleView({ characters, setCharacters }: ConsoleViewPr
   };
 
   return (
-    <div className="relative flex h-[calc(100vh-120px)] gap-6 overflow-hidden p-2">
+    <div className="relative flex h-[calc(100vh-120px)] gap-6 overflow-hidden p-3 bg-slate-50/50">
       
       {/* --- 左侧列表 --- */}
-      <div className="w-64 flex flex-col gap-6 overflow-y-auto pr-2 scrollbar-hide">
+      <div className="w-56 flex-shrink-0 flex flex-col gap-6 overflow-y-auto pr-2 scrollbar-hide">
         <div className="space-y-2">
             <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] px-2">Keeper</h3>
             <button
@@ -598,7 +708,7 @@ export default function ConsoleView({ characters, setCharacters }: ConsoleViewPr
       </div>
 
       {/* --- 中间主工作区 --- */}
-      <div className="flex-1 flex flex-col gap-6">
+      <div className="flex-1 flex flex-col min-w-0">
         {/* 状态栏显示 */}
         <div className={`grid grid-cols-4 gap-4 transition-opacity duration-500 ${isKPMode ? 'opacity-20 grayscale pointer-events-none' : ''}`}>
           {[
@@ -630,7 +740,7 @@ export default function ConsoleView({ characters, setCharacters }: ConsoleViewPr
         </div>
 
         {/* 动态工作面板 */}
-        <div className="flex-1 bg-white rounded-[3rem] border border-slate-200 shadow-inner flex flex-col relative overflow-hidden">
+        <div className="relative flex h-[calc(100vh-120px)] w-full gap-4 overflow-hidden px-4 py-2 bg-slate-50/50">
           <div className="absolute inset-0 overflow-y-auto scrollbar-hide">
             <div className="min-h-full flex flex-col items-center justify-center px-12 py-12">
           {/* 规则触发弹窗：KP模式下不会触发此弹窗 */}
@@ -654,7 +764,7 @@ export default function ConsoleView({ characters, setCharacters }: ConsoleViewPr
                   { id: 'check', title: '技能/属性检定', icon: '🎯', desc: '1D100 对抗或普通判定', needChar: true },
                   { id: 'damage', title: '数值变化', icon: '💥', desc: 'HP/SAN/MP 增减与伤害', needChar: true },
                   { id: 'custom', title: '具体判定', icon: '🎲', desc: '自由掷骰 1D?, 2D6+3...', needChar: false },
-                  { id: 'special', title: '特殊规则', icon: '🔥', desc: '孤注一掷/幸运/成长', needChar: false }
+                  { id: 'special', title: '特殊规则', icon: '🔥', desc: '孤注一掷/幸运/成长', needChar: true }
                 ].map(item => {
                   const isDisabled = isKPMode && item.needChar;
                   return (
@@ -810,179 +920,222 @@ export default function ConsoleView({ characters, setCharacters }: ConsoleViewPr
                 )}
 
                 {rollType === 'damage' && (
-                <div className="w-full max-w-2xl flex flex-col overflow-y-auto pr-2 custom-scrollbar animate-in fade-in zoom-in duration-300">
-                  <div className="flex flex-col items-center gap-6 py-4">
-                    
-                    <div className="h-20 flex items-center justify-center w-full flex-shrink-0">
-                      {lastResult ? (
-                        <div className="flex flex-col items-center animate-in slide-in-from-top-4 duration-300">
-                          <div className="flex items-baseline gap-3">
-                            <span className="text-4xl font-black text-slate-900">
-                              {lastResult.label.includes('损失') ? '-' : '+'}{lastResult.roll}
-                            </span>
-                            <span className="text-slate-400 text-sm font-medium italic">
-                              ({lastResult.level})
-                            </span>
+                  <div className="w-full max-w-2xl flex flex-col overflow-y-auto pr-2 custom-scrollbar animate-in fade-in duration-300">
+                    <div className="flex flex-col items-center gap-6 py-4">
+                      {/* 1. 结果显示区 */}
+                      <div className="h-20 flex items-center justify-center w-full">
+                        {lastResult ? (
+                          <div className="flex flex-col items-center animate-in slide-in-from-top-4">
+                            <div className="flex items-baseline gap-3">
+                              <span className="text-4xl font-black text-slate-900">
+                                {lastResult.label.includes('损失') ? '-' : '+'}{lastResult.roll}
+                              </span>
+                              <span className="text-slate-400 text-sm italic">({lastResult.level})</span>
+                            </div>
                           </div>
+                        ) : (
+                          <div className="text-slate-300 italic text-sm font-serif">等待指令...</div>
+                        )}
+                      </div>
+
+                      {/* 2. 存活状态判断 */}
+                      {isTotallyDead ? (
+                        <div className="p-12 bg-slate-100 rounded-[2rem] border-2 border-dashed border-slate-300 text-center w-full">
+                          <span className="text-4xl mb-4 block">💀</span>
+                          <p className="text-slate-600 font-black uppercase tracking-widest text-sm">该角色已死亡</p>
                         </div>
                       ) : (
-                        <div className="text-slate-300 italic text-sm font-serif">揭示骰子的意志...</div>
+                        <>
+                          {/* 属性选择器 */}
+                          <div className="flex gap-2 p-1 bg-slate-100 rounded-2xl flex-wrap justify-center w-fit">
+                            {['hp', 'mp', 'san', 'luck'].map((k) => (
+                              <button
+                                key={k}
+                                onClick={() => setSelectedStat(k as any)}
+                                className={`px-6 py-2 rounded-xl text-xs font-black transition-all ${
+                                  selectedStat === k ? 'bg-white shadow-sm text-slate-900' : 'text-slate-400'
+                                }`}
+                              >
+                                {k.toUpperCase()}
+                              </button>
+                            ))}
+                          </div>
+
+                          {/* 核心输入区卡片 */}
+                          <div className="w-full bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm space-y-6">
+                            <div className="flex items-start gap-6">
+                              {/* 左侧：动态骰子列表 */}
+                              <div className="flex-1 space-y-3">
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                                  掷骰组合
+                                </label>
+                                {diceGroups.map((group, index) => (
+                                  <div key={index} className="flex items-center gap-2 animate-in fade-in slide-in-from-left-2">
+                                    <input
+                                      type="number"
+                                      min="1"
+                                      className="w-full h-14 text-center text-xl font-black bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-blue-400 outline-none transition-all"
+                                      value={group.count}
+                                      onChange={(e) => updateDiceGroup(index, 'count', Number(e.target.value))}
+                                    />
+                                    <span className="font-serif italic text-xl text-slate-300">D</span>
+                                    <input
+                                      type="number"
+                                      min="1"
+                                      className="w-full h-14 text-center text-xl font-black bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-blue-400 outline-none transition-all"
+                                      value={group.sides}
+                                      onChange={(e) => updateDiceGroup(index, 'sides', Number(e.target.value))}
+                                    />
+                                    {diceGroups.length > 1 && (
+                                      <button
+                                        onClick={() => removeDiceGroup(index)}
+                                        className="text-slate-300 hover:text-red-400 px-1"
+                                      >
+                                        ✕
+                                      </button>
+                                    )}
+                                  </div>
+                                ))}
+                                {diceGroups.length < 3 && (
+                                  <button
+                                    onClick={addDiceGroup}
+                                    className="w-full py-2 border-2 border-dashed border-slate-100 rounded-xl text-slate-400 text-[10px] font-black uppercase hover:bg-slate-50"
+                                  >
+                                    + Add Dice
+                                  </button>
+                                )}
+                              </div>
+
+                              {/* 分割线 */}
+                              <div className="w-px self-stretch bg-slate-100" />
+
+                              {/* 右侧：数值微调 */}
+                              <div className="flex flex-col gap-4">
+                                <div className="flex flex-col gap-1">
+                                  <label className="text-[9px] font-black text-slate-400 ml-1">BONUS</label>
+                                  <input
+                                    type="number"
+                                    className="w-20 h-14 text-center text-xl font-black bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-blue-400 outline-none"
+                                    value={bonusValue}
+                                    onChange={(e) => setBonusValue(Number(e.target.value))}
+                                  />
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                  <label className="text-[9px] font-black text-blue-400 ml-1">FIXED</label>
+                                  <input
+                                    type="number"
+                                    placeholder="固定"
+                                    className="w-20 h-14 text-center text-lg font-black bg-blue-50/30 border-2 border-blue-100 rounded-2xl text-blue-600 outline-none"
+                                    value={fixedValue}
+                                    onChange={(e) => {
+                                      const val = e.target.value === '' ? '' : Number(e.target.value);
+                                      setFixedValue(val);
+                                      setIsFixed(true);
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* 3. 底部按钮 */}
+                            <div className="grid grid-cols-2 gap-4 h-16">
+                              <button
+                                onClick={() => applyValueChange(true)}
+                                className="bg-slate-900 text-white rounded-2xl font-black hover:bg-red-600 transition-all active:scale-95 shadow-lg"
+                              >
+                                减少{selectedStat?.toUpperCase()}
+                              </button>
+                              <button
+                                onClick={() => applyValueChange(false)}
+                                className="bg-white text-slate-900 border-2 border-slate-900 rounded-2xl font-black hover:bg-green-50 transition-all active:scale-95"
+                              >
+                                恢复{selectedStat?.toUpperCase()}
+                              </button>
+                            </div>
+                          </div>
+                        </>
                       )}
                     </div>
-
-                    {isTotallyDead ? (
-                      <div className="p-12 bg-slate-100 rounded-[2rem] border-2 border-dashed border-slate-300 text-center w-full">
-                        <span className="text-4xl mb-4 block">💀</span>
-                        <p className="text-slate-600 font-black uppercase tracking-widest text-sm">该角色已死亡</p>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="flex gap-2 p-1 bg-slate-100 rounded-2xl flex-wrap justify-center flex-shrink-0">
-                          {['hp', 'mp', 'san', 'luck'].filter(k => {
-                            if (currentChar?.type === 'mob') return k === 'hp' || k === 'mp';
-                            return true;
-                          }).map(k => (
-                            <button 
-                              key={k} 
-                              onClick={() => setSelectedStat(k as any)} 
-                              className={`px-6 py-2 rounded-xl text-xs font-black transition-all ${selectedStat === k ? 'bg-white shadow-sm text-slate-900' : 'text-slate-400'}`}
-                            >
-                              {k.toUpperCase()}
-                            </button>
-                          ))}
-                        </div>
-                            
-                        <div className="flex flex-col items-center gap-4 w-full flex-shrink-0">
-                          <div className="flex items-center gap-3 flex-wrap justify-center">
-                          {/* 骰子数量：最小为 1 */}
-                          <input 
-                            type="number" 
-                            min="1"
-                            className="w-16 h-16 text-center text-2xl font-black bg-slate-50 border-2 border-slate-200 rounded-2xl" 
-                            value={dmgDiceCount} 
-                            onChange={e => { setDmgDiceCount(Math.max(1, Number(e.target.value))); setIsFixed(false); }} 
-                          />
-                          <span className="font-serif italic text-2xl text-slate-400">D</span>
-                          
-                          {/* 骰子面数：最小为 1 */}
-                          <input 
-                            type="number" 
-                            min="1"
-                            className="w-16 h-16 text-center text-2xl font-black bg-slate-50 border-2 border-slate-200 rounded-2xl" 
-                            value={dmgDiceSides} 
-                            onChange={e => { setDmgDiceSides(Math.max(1, Number(e.target.value))); setIsFixed(false); }} 
-                          />
-                          <span className="font-serif italic text-2xl text-slate-400">+</span>
-                          
-                          {/* 加值：最小为 0 */}
-                          <input 
-                            type="number" 
-                            min="0"
-                            className="w-16 h-16 text-center text-2xl font-black bg-slate-50 border-2 border-slate-200 rounded-2xl" 
-                            value={dmgBonus} 
-                            onChange={e => { setDmgBonus(Math.max(0, Number(e.target.value))); setIsFixed(false); }} 
-                          />
-                          
-                          <span className="mx-4 text-slate-200">|</span>
-                          
-                          {/* 固定值：最小为 0 */}
-                          <input 
-                            type="number" 
-                            min="0"
-                            placeholder="固定值" 
-                            className="w-24 h-16 text-center text-xl font-black bg-blue-50/50 border-2 border-blue-100 rounded-2xl placeholder:text-blue-200" 
-                            value={fixedValue} 
-                            onChange={e => { 
-                              const val = e.target.value === "" ? "" : Math.max(0, Number(e.target.value));
-                              setFixedValue(val); 
-                              setIsFixed(true); 
-                            }} 
-                          />
-                        </div>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-4 w-full h-24 flex-shrink-0 mb-4">
-                          <button onClick={() => applyValueChange(true)} className="bg-red-600 text-white rounded-[2rem] font-black text-lg hover:bg-red-700 transition-all active:scale-95 shadow-lg shadow-red-200">损失</button>
-                          <button onClick={() => applyValueChange(false)} className="bg-green-600 text-white rounded-[2rem] font-black text-lg hover:bg-green-700 transition-all active:scale-95 shadow-lg shadow-green-200">恢复 </button>
-                        </div>
-                      </>
-                    )}
                   </div>
-                </div>
-              )}
+                )}
 
                 {rollType === 'custom' && (
-                <div className="w-full max-w-2xl flex flex-col overflow-y-auto pr-2 custom-scrollbar animate-in fade-in zoom-in duration-300">
-                  <div className="flex flex-col items-center gap-8 py-4">
-                    {/* 结果显示区 */}
-                    <div className="h-20 flex items-center justify-center w-full flex-shrink-0">
-                      {lastResult ? (
-                        <div className="flex flex-col items-center animate-bounce-short">
-                          <div className="flex items-baseline gap-3">
-                            <span className="text-4xl font-black text-blue-600">{lastResult.roll}</span>
-                            <span className="text-slate-400 text-sm italic">({lastResult.level})</span>
+                  <div className="w-full max-w-2xl flex flex-col overflow-y-auto pr-2 custom-scrollbar animate-in fade-in duration-300">
+                    <div className="flex flex-col items-center gap-6 py-4">
+                      {/* 结果显示区 */}
+                      <div className="h-20 flex items-center justify-center w-full">
+                        {lastResult ? (
+                          <div className="flex flex-col items-center animate-bounce-short">
+                            <div className="flex items-baseline gap-3">
+                              <span className="text-4xl font-black text-blue-600">{lastResult.roll}</span>
+                              <span className="text-slate-400 text-sm italic">({lastResult.level})</span>
+                            </div>
+                          </div>
+                        ) : <div className="text-slate-300 italic text-sm font-serif">揭示骰子的意志...</div>}
+                      </div>
+
+                      {/* 核心输入卡片 */}
+                      <div className="w-full bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm space-y-6">
+                        {/* 掷骰目的 */}
+                        <div className="flex flex-col gap-2">
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">掷骰目的</label>
+                          <input type="text" placeholder="输入本次判定的内容..." 
+                            className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl py-3 px-6 text-base font-bold outline-none focus:border-blue-400 transition-all"
+                            value={customLabel} onChange={e => setCustomLabel(e.target.value)}
+                          />
+                        </div>
+
+                        {/* 骰子配置区 */}
+                        <div className="flex items-start gap-6">
+                          {/* 左侧：动态骰子列表 */}
+                          <div className="flex-1 space-y-3">
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">掷骰组合</label>
+                            {diceGroups.map((group, index) => (
+                              <div key={index} className="flex items-center gap-2 animate-in fade-in slide-in-from-left-2">
+                                <input type="number" min="1"
+                                  className="w-full h-14 text-center text-xl font-black bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-blue-400 outline-none" 
+                                  value={group.count} 
+                                  onChange={e => updateDiceGroup(index, 'count', Number(e.target.value))} 
+                                />
+                                <span className="font-serif italic text-xl text-slate-300">D</span>
+                                <input type="number" min="1"
+                                  className="w-full h-14 text-center text-xl font-black bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-blue-400 outline-none" 
+                                  value={group.sides} 
+                                  onChange={e => updateDiceGroup(index, 'sides', Number(e.target.value))} 
+                                />
+                                {diceGroups.length > 1 && (
+                                  <button onClick={() => removeDiceGroup(index)} className="text-slate-300 hover:text-red-400 px-1">✕</button>
+                                )}
+                              </div>
+                            ))}
+                            {diceGroups.length < 3 && (
+                              <button onClick={addDiceGroup} className="w-full py-2 border-2 border-dashed border-slate-100 rounded-xl text-slate-400 text-[10px] font-black uppercase hover:bg-slate-50">+ Add Dice</button>
+                            )}
+                          </div>
+
+                          {/* 分割线 */}
+                          <div className="w-px self-stretch bg-slate-100" />
+
+                          {/* 右侧：加值 */}
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[9px] font-black text-slate-400 ml-1">BONUS</label>
+                            <input type="number" 
+                              className="w-20 h-14 text-center text-xl font-black bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-blue-400 outline-none" 
+                              value={bonusValue} onChange={e => setBonusValue(Number(e.target.value))}
+                            />
                           </div>
                         </div>
-                      ) : <div className="text-slate-300 italic text-sm font-serif">揭示骰子的意志...</div>}
-                    </div>
 
-                    {/* 输入区容器 */}
-                    <div className="w-full space-y-6 bg-slate-50/50 p-8 rounded-[2.5rem] border border-slate-100 mb-6 flex-shrink-0">
-                      <div className="flex flex-col gap-2">
-                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">掷骰目的</label>
-                        <input 
-                          type="text" 
-                          placeholder="输入本次判定的内容..." 
-                          className="w-full bg-white border-2 border-slate-100 rounded-2xl py-3 px-6 text-base font-bold outline-none focus:border-blue-400 transition-all shadow-sm"
-                          value={customLabel}
-                          onChange={e => setCustomLabel(e.target.value)}
-                        />
+                        {/* 掷骰按钮 */}
+                        <button onClick={executeCustomRoll}
+                          className="w-full h-16 bg-slate-900 text-white rounded-2xl font-black text-lg hover:bg-blue-600 transition-all active:scale-95 shadow-lg shadow-slate-100"
+                        >
+                          掷骰
+                        </button>
                       </div>
-
-                      <div className="flex flex-col gap-2">
-                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">掷骰（XDX+X）</label>
-                        <div className="flex items-center gap-3">
-                        {/* 骰子数量：最小 1 */}
-                        <input 
-                          type="number" 
-                          min="1"
-                          className="w-full h-14 text-center text-xl font-black bg-white border-2 border-slate-100 rounded-2xl focus:border-blue-400 outline-none" 
-                          value={customDiceCount} 
-                          onChange={e => setCustomDiceCount(Math.max(1, Number(e.target.value)))} 
-                        />
-                        <span className="font-serif italic text-xl text-slate-300">D</span>
-                        
-                        {/* 骰子面数：最小 1 */}
-                        <input 
-                          type="number" 
-                          min="1"
-                          className="w-full h-14 text-center text-xl font-black bg-white border-2 border-slate-100 rounded-2xl focus:border-blue-400 outline-none" 
-                          value={customDiceSides} 
-                          onChange={e => setCustomDiceSides(Math.max(1, Number(e.target.value)))} 
-                        />
-                        <span className="font-serif italic text-xl text-slate-300">+</span>
-                        
-                        {/* 额外加值：最小 0 */}
-                        <input 
-                          type="number" 
-                          min="0"
-                          className="w-full h-14 text-center text-xl font-black bg-white border-2 border-slate-100 rounded-2xl focus:border-blue-400 outline-none" 
-                          value={customBonus} 
-                          onChange={e => setCustomBonus(Math.max(0, Number(e.target.value)))} 
-                        />
-                      </div>
-                      </div>
-
-                      <button 
-                        onClick={executeCustomRoll}
-                        className="w-full h-16 bg-slate-900 text-white rounded-2xl font-black text-lg hover:bg-blue-600 transition-all active:scale-95 shadow-xl shadow-slate-200 mt-2"
-                      >
-                        掷骰
-                      </button>
                     </div>
                   </div>
-                </div>
-              )}
+                )}
                 
                 {rollType === 'special' && currentChar?.type === 'mob' && (
                   <div className="text-center p-10 text-slate-400 italic">
@@ -1028,7 +1181,7 @@ export default function ConsoleView({ characters, setCharacters }: ConsoleViewPr
                           className="group p-6 rounded-[2rem] bg-white border border-slate-200 hover:border-orange-200 hover:shadow-xl hover:shadow-orange-50/50 transition-all flex items-center w-full"
                         >
                           <div className="flex items-center gap-5 flex-1 text-left">
-                            <div className="w-14 h-14 shrink-0 rounded-2xl bg-orange-50 flex items-center pl-3 text-3xl group-hover:scale-110 transition-transform">
+                            <div className="w-14 h-14 shrink-0 rounded-2xl bg-orange-50 flex items-center justify-center text-3xl group-hover:scale-110 transition-transform">
                               🎲
                             </div>
                             <div className="flex flex-col gap-0.5">
@@ -1045,7 +1198,7 @@ export default function ConsoleView({ characters, setCharacters }: ConsoleViewPr
                           className="group p-6 rounded-[2rem] bg-white border border-slate-200 hover:border-blue-200 hover:shadow-xl hover:shadow-blue-50/50 transition-all flex items-center w-full"
                         >
                           <div className="flex items-center gap-5 flex-1 text-left">
-                            <div className="w-14 h-14 shrink-0 rounded-2xl bg-blue-50 flex items-center pl-3 text-3xl group-hover:scale-110 transition-transform">
+                            <div className="w-14 h-14 shrink-0 rounded-2xl bg-blue-50 flex items-center justify-center text-3xl group-hover:scale-110 transition-transform">
                               🔥
                             </div>
                             <div className="flex flex-col gap-0.5">
@@ -1063,7 +1216,7 @@ export default function ConsoleView({ characters, setCharacters }: ConsoleViewPr
                           className="group p-6 rounded-[2rem] bg-white border border-slate-200 hover:border-green-200 hover:shadow-xl hover:shadow-green-50/50 transition-all flex items-center w-full"
                         >
                           <div className="flex items-center gap-5 flex-1 text-left">
-                            <div className="w-14 h-14 shrink-0 rounded-2xl bg-green-50 flex items-center pl-3 text-3xl group-hover:scale-110 transition-transform">
+                            <div className="w-14 h-14 shrink-0 rounded-2xl bg-green-50 flex items-center justify-center text-3xl group-hover:scale-110 transition-transform">
                               🌱
                             </div>
                             <div className="flex flex-col gap-0.5">
@@ -1436,98 +1589,81 @@ export default function ConsoleView({ characters, setCharacters }: ConsoleViewPr
         </div>
       </div>
 
-      {/* --- 日志组件 --- */}
-      <div className="fixed bottom-10 right-10 flex flex-col gap-4 z-40">
-        <button onClick={() => setShowLog(!showLog)} className="w-14 h-14 bg-slate-900 text-white rounded-2xl shadow-2xl flex items-center justify-center hover:scale-110 active:scale-95 transition-all group">
-          <span className="text-xl">📜</span>
-        </button>
-      </div>
+      {/* --- 右侧：日志常驻区域 --- */}
+      <div className="w-72 flex-shrink-0 flex flex-col relative">
+        
+        {/* 功能操作区 */}
+        <div className="flex gap-2 mb-3">
+          <button 
+            onClick={exportLogs}
+            className="flex-1 py-1.5 bg-blue-50 text-blue-600 text-[10px] font-black uppercase rounded-lg hover:bg-blue-600 hover:text-white transition-all border border-blue-100"
+          >
+            Export TXT
+          </button>
+          <button 
+            onClick={handleClearAllLogs} 
+            className="flex-1 py-1.5 bg-red-50 text-red-600 text-[10px] font-black uppercase rounded-lg hover:bg-red-600 hover:text-white transition-all border border-red-100"
+          >
+            Clear All
+          </button>
+        </div>
 
-      {showLog && (
-      <div className="absolute inset-0 z-50 flex justify-end">
-        <div className="absolute inset-0 bg-slate-900/20 backdrop-blur-sm" onClick={() => setShowLog(false)} />
-        <div className="w-80 bg-white h-full shadow-2xl p-6 animate-in slide-in-from-right duration-300 relative flex flex-col">
-          
-          {/* 头部标题栏 */}
-          <div className="flex justify-between items-center mb-4 flex-shrink-0">
-            <h4 className="font-black text-slate-800 italic uppercase tracking-widest flex items-center gap-2">📜 Log History</h4>
-            <button onClick={() => setShowLog(false)} className="text-slate-400 text-xs hover:text-red-500 transition-colors">CLOSE ✕</button>
-          </div>
-
-          {/* 新增：功能操作区 */}
-          <div className="flex gap-2 mb-6">
-            <button 
-              onClick={exportLogs}
-              className="flex-1 py-2 bg-blue-50 text-blue-600 text-[10px] font-black uppercase rounded-lg hover:bg-blue-600 hover:text-white transition-all border border-blue-100"
-            >
-              Export TXT
-            </button>
-            <button 
-              onClick={handleClearAllLogs} 
-              className="flex-1 py-2 bg-red-50 text-red-600 text-[10px] font-black uppercase rounded-lg hover:bg-red-600 hover:text-white transition-all border border-red-100"
-            >
-              Clear All
-            </button>
-          </div>
-
-          <div className="space-y-4 overflow-y-auto flex-1 pr-2 custom-scrollbar">
-            {logs.length === 0 ? (
-              <div className="text-center text-slate-300 py-20 italic text-sm">No records found.</div>
-            ) : (
-              logs.map(log => {
-                const isCheck = log.level.includes('成功') || log.level.includes('失败');
-                return (
-                  <div key={log.id} className={`group relative p-3 rounded-xl border transition-all hover:bg-slate-100 ${log.isPushed ? 'bg-orange-50/50 border-orange-100' : 'bg-slate-50 border-slate-100'}`}>
-                    {/* 孤注一掷标签 */}
-                    {log.isPushed && (
-                      <div className="absolute -right-1 top-7 bg-orange-600 text-white text-[8px] font-black px-1.5 py-0.5 rounded-sm shadow-sm z-10">
-                        孤注一掷
-                      </div>
-                    )}
-
-                    {/* 燃烧幸运标签 */}
-                    {log.isLuckBurned && (
-                      <div className="absolute -right-1 top-7 bg-blue-600 text-white text-[8px] font-black px-1.5 py-0.5 rounded-sm shadow-sm z-10">
-                        燃烧幸运
-                      </div>
-                    )}
-
-                    {/* 修改后的单条删除按钮：增加 confirm */}
-                    <button 
-                      onClick={() => handleDeleteLog(log)} // 使用新定义的 Swal 函数
-                      className="absolute -top-2 -right-2 ..."
-                    >
-                      <span className="text-[10px] font-bold">✕</span>
-                    </button>
-
-                    <div className="flex justify-between items-start mb-1">
-                      <div className="text-slate-400 text-[9px] font-mono">{log.time}</div>
-                      <div className="text-[13px] font-black px-1.5 py-0.5 bg-slate-200 text-slate-500 rounded uppercase tracking-tighter">{log.name}</div>
+        {/* 日志内容滚动区 */}
+        <div className="space-y-2 overflow-y-auto flex-1 pr-2 custom-scrollbar">
+          {logs.length === 0 ? (
+            <div className="text-center text-slate-300 py-10 italic text-xs">No records found.</div>
+          ) : (
+            logs.map(log => {
+              const isCheck = log.level.includes('成功') || log.level.includes('失败');
+              return (
+                <div key={log.id} className={`group relative p-2 rounded-lg border transition-all hover:bg-slate-100 ${log.isPushed ? 'bg-orange-50/50 border-orange-100' : 'bg-slate-50 border-slate-100'}`}>
+                  {/* 孤注一掷标签 */}
+                  {log.isPushed && (
+                    <div className="absolute -right-1 top-7 bg-orange-600 text-white text-[8px] font-black px-1.5 py-0.5 rounded-sm shadow-sm z-10">
+                      孤注一掷
                     </div>
+                  )}
 
-                    <div className={`font-bold text-[15px] mb-1 ${log.isPushed ? 'text-orange-900' : (log.isLuckBurned ? 'text-blue-900' :'text-slate-800')}`}>
-                      {log.label}
+                  {/* 燃烧幸运标签 */}
+                  {log.isLuckBurned && (
+                    <div className="absolute -right-1 top-7 bg-blue-600 text-white text-[8px] font-black px-1.5 py-0.5 rounded-sm shadow-sm z-10">
+                      燃烧幸运
                     </div>
+                  )}
 
-                    <div className="flex items-baseline justify-between">
-                      <div className="font-mono text-[12px] text-slate-500">
-                        {isCheck ? <span>Roll: <b>{log.roll}</b>/{log.target}</span> : <span className="italic">{log.level}</span>}
-                      </div>
-                      {isCheck && (
-                        <div className={`font-black text-[15px] italic uppercase tracking-tighter ${log.level.includes('成功') ? 'text-green-600' : 'text-red-600'}`}>
-                          {log.level}
-                        </div>
-                      )}
-                    </div>
+                  {/* 单条删除按钮 */}
+                  <button 
+                    onClick={() => handleDeleteLog(log)}
+                    className="absolute -top-2 -right-2 w-4 h-5 bg-white border border-slate-200 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-sm hover:text-red-500"
+                  >
+                    <span className="text-[10px] font-bold">✕</span>
+                  </button>
+
+                  <div className="flex justify-between items-start mb-0.5">
+                    <div className="text-slate-400 text-[8px] font-mono">{log.time}</div>
+                    <div className="text-[13px] font-black px-1.5 py-0.5 bg-slate-200 text-slate-500 rounded uppercase tracking-tighter">{log.name}</div>
                   </div>
-                );
-              })
-            )}
-          </div>
+
+                  <div className={`font-bold text-[15px] mb-1 ${log.isPushed ? 'text-orange-900' : (log.isLuckBurned ? 'text-blue-900' :'text-slate-800')}`}>
+                    {log.label}
+                  </div>
+
+                  <div className="flex items-baseline justify-between">
+                    <div className="font-mono text-[12px] text-slate-500">
+                      {isCheck ? <span>Roll: <b>{log.roll}</b>/{log.target}</span> : <span className="italic">{log.level}</span>}
+                    </div>
+                    {isCheck && (
+                      <div className={`font-black text-[15px] italic uppercase tracking-tighter ${log.level.includes('成功') ? 'text-green-600' : 'text-red-600'}`}>
+                        {log.level}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          )}
         </div>
       </div>
-    )}
-
     </div>
   );
 }

@@ -51,17 +51,19 @@ export default function Home() {
   };
 
   return (
-    <div className="flex min-h-screen bg-gray-100 text-black font-sans">
+    <div className="flex h-screen w-full bg-slate-50 text-black font-sans overflow-hidden">
       <Sidebar activeTab={activeTab} onTabChange={setActiveTab} />
 
-      <main className="flex-1 overflow-y-auto">
-        <div className="p-4 sm:p-10 max-w-5xl mx-auto">
+      <main className="flex-1 flex flex-col min-w-0">
+        <div className="w-full h-full p-4">
           {activeTab === 'import' && (
+            <div className="max-w-6xl mx-auto">
             <ImportView 
               onConfirm={handleAddCharacter} 
               characters={characters} 
               setCharacters={setCharacters} 
             />
+            </div>
           )}
           {activeTab === 'console' && (
             <ConsoleView characters={characters} setCharacters={setCharacters} />
