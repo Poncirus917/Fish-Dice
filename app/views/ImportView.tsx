@@ -255,7 +255,7 @@ export default function ImportView({ onConfirm, characters, setCharacters }: Imp
             return (
               <div className="space-y-8 animate-in slide-in-from-right-4 duration-500">
                 <div className="flex justify-between items-center">
-                  <h3 className="text-xl font-bold">数值校对 (上限99)</h3>
+                  <h3 className="text-xl font-bold">数值校对</h3>
                   <button onClick={() => setStep(1)} className="text-slate-400 text-xs hover:text-blue-600">← 返回上一步</button>
                 </div>
 
