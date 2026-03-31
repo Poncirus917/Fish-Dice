@@ -54,7 +54,7 @@ export default function Home() {
     <div className="flex h-screen w-full bg-slate-50 text-black font-sans overflow-hidden">
       <Sidebar activeTab={activeTab} onTabChange={setActiveTab} />
 
-      <main className="flex-1 flex flex-col min-w-0">
+      <main className="flex-1 flex flex-col min-w-0 overflow-y-auto custom-scrollbar">
         <div className="w-full h-full p-4">
           {activeTab === 'import' && (
             <div className="max-w-6xl mx-auto">
