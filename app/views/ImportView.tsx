@@ -359,7 +359,7 @@ export default function ImportView({ onConfirm, characters, setCharacters }: Imp
         </div>
       </div>
 
-      {/* 角色列表显示逻辑保持不变，但增加类型标签 */}
+      {/* 角色列表显示逻辑 */}
       <div className="mt-8 space-y-4">
         <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest px-4">当前载入角色 ({characters.length})</h3>
         <div className="space-y-3">
@@ -397,7 +397,7 @@ export default function ImportView({ onConfirm, characters, setCharacters }: Imp
               </div>
               {expandedId === char.id && (
                 <div className="px-6 pb-6 pt-2 bg-slate-50/50 border-t border-slate-50 animate-in slide-in-from-top-2 duration-300">
-                  {/* 这里手动构造 12 个核心数值 */}
+                  {/* 手动构造 12 个核心数值 */}
                   <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-12 gap-2 mb-4">
                     {[
                       { label: "力量", value: char.attributes["力量"] },

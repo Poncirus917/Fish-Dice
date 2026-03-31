@@ -134,9 +134,6 @@ export default function ConsoleView({ characters, setCharacters }: ConsoleViewPr
     };
 
     setLogs(prev => [statusLog, ...prev]);
-    
-    // 可选：同步更新到“最后结果”显示区
-    setLastResult(statusLog);
   };
 
   const executeCheck = (label: string, 
@@ -491,16 +488,18 @@ export default function ConsoleView({ characters, setCharacters }: ConsoleViewPr
     const addedStatus = statusUpdate.filter(s => !currentChar.status?.includes(s));
     const removedStatus = currentChar.status?.filter(s => !statusUpdate.includes(s)) || [];
 
-    addedStatus.forEach(s => {
-      const entry: LogEntry = {
-        id: Math.random().toString(36).substring(2, 11),
-        time: new Date().toLocaleTimeString(),
-        name: currentChar.name,
-        label: `进入状态：${s}`,
-        roll: 0, target: 0, level: "AUTO"
-      };
-      setLogs(prev => [entry, ...prev]);
-    });
+    setTimeout(() => {
+      addedStatus.forEach(s => {
+        const entry: LogEntry = {
+          id: Math.random().toString(36).substring(2, 11),
+          time: new Date().toLocaleTimeString(),
+          name: currentChar.name,
+          label: `进入状态：${s}`,
+          roll: 0, target: 0, level: "AUTO"
+        };
+        setLogs(prev => [entry, ...prev]);
+      });
+    }, 10);
 
     removedStatus.forEach(s => {
       const entry: LogEntry = {
@@ -669,7 +668,7 @@ export default function ConsoleView({ characters, setCharacters }: ConsoleViewPr
     <div className="relative flex h-[calc(100vh-120px)] gap-6 overflow-hidden p-3 bg-slate-50/50">
       
       {/* --- 左侧列表 --- */}
-      <div className="w-56 flex-shrink-0 flex flex-col gap-6 overflow-y-auto pr-2 scrollbar-hide">
+      <div className="w-56 flex-shrink-0 flex flex-col gap-6 overflow-y-auto pr-2 scrollbar-hide p-1">
         <div className="space-y-2">
             <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] px-2">Keeper</h3>
             <button
@@ -710,7 +709,7 @@ export default function ConsoleView({ characters, setCharacters }: ConsoleViewPr
       {/* --- 中间主工作区 --- */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* 状态栏显示 */}
-        <div className={`grid grid-cols-4 gap-4 transition-opacity duration-500 ${isKPMode ? 'opacity-20 grayscale pointer-events-none' : ''}`}>
+        <div className={`grid grid-cols-4 gap-4 transition-opacity duration-500 mt-6 ${isKPMode ? 'opacity-20 grayscale pointer-events-none' : ''}`}>
           {[
             { label: "HP", key: "hp", color: "bg-red-500", text: "text-red-600", icon: "❤️" },
             { label: "MP", key: "mp", color: "bg-blue-500", text: "text-blue-600", icon: "✨" },
@@ -1047,7 +1046,7 @@ export default function ConsoleView({ characters, setCharacters }: ConsoleViewPr
                               </button>
                               <button
                                 onClick={() => applyValueChange(false)}
-                                className="bg-white text-slate-900 border-2 border-slate-900 rounded-2xl font-black hover:bg-green-50 transition-all active:scale-95"
+                                className="bg-slate-900 text-white rounded-2xl font-black hover:bg-green-600 transition-all active:scale-95 shadow-lg"
                               >
                                 恢复{selectedStat?.toUpperCase()}
                               </button>

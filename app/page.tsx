@@ -26,7 +26,7 @@ export default function Home() {
   const [characters, setCharacters] = useState<CharacterState[]>([]);
   const [isInitialized, setIsInitialized] = useState(false);
 
-  // --- 持久化逻辑（保持不变） ---
+  // --- 持久化逻辑 ---
   useEffect(() => {
     const saved = localStorage.getItem('fish-dice-kp-vault');
     if (saved) {
@@ -54,7 +54,7 @@ export default function Home() {
     <div className="flex h-screen w-full bg-slate-50 text-black font-sans overflow-hidden">
       <Sidebar activeTab={activeTab} onTabChange={setActiveTab} />
 
-      <main className="flex-1 flex flex-col min-w-0">
+      <main className="flex-1 flex flex-col min-w-0 overflow-y-auto custom-scrollbar">
         <div className="w-full h-full p-4">
           {activeTab === 'import' && (
             <div className="max-w-6xl mx-auto">
