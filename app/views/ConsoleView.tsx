@@ -664,6 +664,27 @@ export default function ConsoleView({ characters, setCharacters }: ConsoleViewPr
     });
   };
 
+  // 自由记录
+  const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
+  const [narrativeText, setNarrativeText] = useState("");
+  const addNarrativeLog = () => {
+    const trimmedText = narrativeText.trim();
+    if (!trimmedText) return;
+
+    const newLog: LogEntry = {
+      id: Math.random().toString(36).substring(2, 11),
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      name: isKPMode ? "守秘人" : (currentChar?.name || "未知"),
+      label: "记录",
+      roll: 0,
+      target: 0,
+      level: trimmedText, // 这里的文本可以包含多行
+    };
+
+    setLogs(prev => [newLog, ...prev]);
+    setNarrativeText("");
+  };
+
   return (
     <div className="relative flex h-[calc(100vh-120px)] gap-6 overflow-hidden p-3 bg-slate-50/50">
       
@@ -1606,7 +1627,15 @@ export default function ConsoleView({ characters, setCharacters }: ConsoleViewPr
             Clear All
           </button>
         </div>
-
+        
+        <div className="mb-4">
+          <button 
+            onClick={() => setIsNoteModalOpen(true)}
+            className="w-full py-2 border-2 border-dashed border-slate-200 rounded-xl text-slate-400 text-xs font-bold hover:border-blue-300 hover:text-blue-500 hover:bg-blue-50/50 transition-all flex items-center justify-center gap-2"
+          >
+            <span>+ 添加笔记</span>
+          </button>
+        </div>
         {/* 日志内容滚动区 */}
         <div className="space-y-2 overflow-y-auto flex-1 pr-2 custom-scrollbar">
           {logs.length === 0 ? (
@@ -1662,6 +1691,44 @@ export default function ConsoleView({ characters, setCharacters }: ConsoleViewPr
             })
           )}
         </div>
+        {isNoteModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
+              <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                <h3 className="font-black text-slate-700">添加剧情笔记</h3>
+                <button onClick={() => setIsNoteModalOpen(false)} className="text-slate-400 hover:text-slate-600">✕</button>
+              </div>
+              
+              <div className="p-4">
+                <textarea
+                  autoFocus
+                  value={narrativeText}
+                  onChange={(e) => setNarrativeText(e.target.value)}
+                  placeholder="在此输入剧情描述、KP的即兴旁白或关键笔记..."
+                  className="w-full h-40 p-3 bg-slate-50 border-none rounded-xl text-sm focus:ring-2 focus:ring-blue-400 outline-none resize-none transition-all"
+                />
+                
+                <div className="mt-4 flex gap-3">
+                  <button
+                    onClick={() => setIsNoteModalOpen(false)}
+                    className="flex-1 py-2.5 rounded-xl font-bold text-slate-500 hover:bg-slate-100 transition-colors"
+                  >
+                    取消
+                  </button>
+                  <button
+                    onClick={() => {
+                      addNarrativeLog();
+                      setIsNoteModalOpen(false);
+                    }}
+                    className="flex-[2] py-2.5 bg-slate-800 text-white rounded-xl font-bold shadow-lg shadow-slate-200 hover:bg-slate-700 active:scale-95 transition-all"
+                  >
+                    保存并记录
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

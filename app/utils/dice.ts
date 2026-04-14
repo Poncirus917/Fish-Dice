@@ -12,12 +12,14 @@ export function cocCheck(
 ): RollResult {
   const roll = Math.floor(Math.random() * 100) + 1;
 
-  if (roll <= successMax) return { roll, level: "大成功" };
   if (roll >= fumbleMin) return { roll, level: "大失败" };
-  
-  if (roll <= target / 5) return { roll, level: "极难成功" };
-  if (roll <= target / 2) return { roll, level: "困难成功" };
-  if (roll <= target) return { roll, level: "成功" };
-  
+
+  if (roll <= target) {
+    if (roll <= successMax) return { roll, level: "大成功" };
+    if (roll <= target / 5) return { roll, level: "极难成功" };
+    if (roll <= target / 2) return { roll, level: "困难成功" };
+    return { roll, level: "成功" };
+  }
+
   return { roll, level: "失败" };
 }
