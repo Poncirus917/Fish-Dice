@@ -2,7 +2,7 @@
 import Swal from 'sweetalert2';
 import { useState, useRef } from 'react';
 import { parseCharacterText } from '../utils/parser';
-import { CharacterState } from '../page';
+import { CharacterState } from '../(single)/page';
 
 interface ImportViewProps {
   onConfirm: (char: CharacterState) => void;

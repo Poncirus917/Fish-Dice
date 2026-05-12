@@ -1,7 +1,7 @@
 "use client";
 import Swal from 'sweetalert2';
 import { useState, useEffect } from 'react';
-import { CharacterState } from '../page';
+import { CharacterState } from '../(single)/page';
 import { cocCheck } from '../utils/dice';
 
 interface ConsoleViewProps {
